@@ -837,7 +837,7 @@ class ContainerApiMixin(object):
                             format(type(since))
                         )
             url = self._url("/containers/{0}/logs", container)
-            res = self._get(url, params=params, stream=stream)
+            res = self._get(url, params=params, stream=stream, timeout=86400)
             return self._get_result(container, stream, res)
         return self.attach(
             container,

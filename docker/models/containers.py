@@ -142,14 +142,17 @@ class Container(Model):
             detach (bool): If true, detach from the exec command.
                 Default: False
             stream (bool): Stream response data. Default: False
+            socket (bool): Return the connection socket to allow custom
+                read/write operations. Default: False
             environment (dict or list): A dictionary or a list of strings in
                 the following format ``["PASSWORD=xxx"]`` or
                 ``{"PASSWORD": "xxx"}``.
 
         Returns:
-            (generator or str): If ``stream=True``, a generator yielding
-                response chunks. A string containing response data otherwise.
-
+            (generator or str):
+                If ``stream=True``, a generator yielding response chunks.
+                If ``socket=True``, a socket object for the connection.
+                A string containing response data otherwise.
         Raises:
             :py:class:`docker.errors.APIError`
                 If the server returns an error.
@@ -549,6 +552,10 @@ class ContainerCollection(Collection):
                 behavior. Accepts number between 0 and 100.
             memswap_limit (str or int): Maximum amount of memory + swap a
                 container is allowed to consume.
+            mounts (:py:class:`list`): Specification for mounts to be added to
+                the container. More powerful alternative to ``volumes``. Each
+                item in the list is expected to be a
+                :py:class:`docker.types.Mount` object.
             name (str): The name for this container.
             nano_cpus (int):  CPU quota in units of 10-9 CPUs.
             network (str): Name of the network this container will be connected
@@ -888,6 +895,7 @@ RUN_HOST_CONFIG_KWARGS = [
     'mem_reservation',
     'mem_swappiness',
     'memswap_limit',
+    'mounts',
     'nano_cpus',
     'network_mode',
     'oom_kill_disable',

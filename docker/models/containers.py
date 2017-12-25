@@ -142,14 +142,17 @@ class Container(Model):
             detach (bool): If true, detach from the exec command.
                 Default: False
             stream (bool): Stream response data. Default: False
+            socket (bool): Return the connection socket to allow custom
+                read/write operations. Default: False
             environment (dict or list): A dictionary or a list of strings in
                 the following format ``["PASSWORD=xxx"]`` or
                 ``{"PASSWORD": "xxx"}``.
 
         Returns:
-            (generator or str): If ``stream=True``, a generator yielding
-                response chunks. A string containing response data otherwise.
-
+            (generator or str):
+                If ``stream=True``, a generator yielding response chunks.
+                If ``socket=True``, a socket object for the connection.
+                A string containing response data otherwise.
         Raises:
             :py:class:`docker.errors.APIError`
                 If the server returns an error.
@@ -549,6 +552,10 @@ class ContainerCollection(Collection):
                 behavior. Accepts number between 0 and 100.
             memswap_limit (str or int): Maximum amount of memory + swap a
                 container is allowed to consume.
+            mounts (:py:class:`list`): Specification for mounts to be added to
+                the container. More powerful alternative to ``volumes``. Each
+                item in the list is expected to be a
+                :py:class:`docker.types.Mount` object.
             name (str): The name for this container.
             nano_cpus (int):  CPU quota in units of 10-9 CPUs.
             network (str): Name of the network this container will be connected
@@ -622,6 +629,9 @@ class ContainerCollection(Collection):
                 (e.g. ``SIGINT``).
             storage_opt (dict): Storage driver options per container as a
                 key-value mapping.
+            stream (bool): If true and ``detach`` is false, return a log
+                generator instead of a string. Ignored if ``detach`` is true.
+                Default: ``False``.
             sysctls (dict): Kernel parameters to set in the container.
             tmpfs (dict): Temporary filesystems to mount, as a dictionary
                 mapping a path inside the container to options for that path.
@@ -689,6 +699,7 @@ class ContainerCollection(Collection):
         """
         if isinstance(image, Image):
             image = image.id
+        stream = kwargs.pop('stream', False)
         detach = kwargs.pop("detach", False)
         if detach and remove:
             if version_gte(self.client.api._version, '1.25'):
@@ -716,23 +727,30 @@ class ContainerCollection(Collection):
         if detach:
             return container
 
-        exit_status = container.wait()
-        if exit_status != 0:
-            stdout = False
-            stderr = True
-
         logging_driver = container.attrs['HostConfig']['LogConfig']['Type']
 
+        out = None
         if logging_driver == 'json-file' or logging_driver == 'journald':
-            out = container.logs(stdout=stdout, stderr=stderr)
-        else:
+            out = container.logs(
+                stdout=stdout, stderr=stderr, stream=True, follow=True
+            )
+
+        exit_status = container.wait()
+        if exit_status != 0:
             out = None
+            if not kwargs.get('auto_remove'):
+                out = container.logs(stdout=False, stderr=True)
 
         if remove:
             container.remove()
         if exit_status != 0:
-            raise ContainerError(container, exit_status, command, image, out)
-        return out
+            raise ContainerError(
+                container, exit_status, command, image, out
+            )
+
+        return out if stream or out is None else b''.join(
+            [line for line in out]
+        )
 
     def create(self, image, command=None, **kwargs):
         """
@@ -866,6 +884,8 @@ RUN_HOST_CONFIG_KWARGS = [
     'cpu_shares',
     'cpuset_cpus',
     'cpuset_mems',
+    'cpu_rt_period',
+    'cpu_rt_runtime',
     'device_read_bps',
     'device_read_iops',
     'device_write_bps',
@@ -888,6 +908,7 @@ RUN_HOST_CONFIG_KWARGS = [
     'mem_reservation',
     'mem_swappiness',
     'memswap_limit',
+    'mounts',
     'nano_cpus',
     'network_mode',
     'oom_kill_disable',

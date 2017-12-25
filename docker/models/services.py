@@ -147,6 +147,22 @@ class ServiceCollection(Collection):
             user (str): User to run commands as.
             workdir (str): Working directory for commands to run.
             tty (boolean): Whether a pseudo-TTY should be allocated.
+            groups (:py:class:`list`): A list of additional groups that the
+                container process will run as.
+            open_stdin (boolean): Open ``stdin``
+            read_only (boolean): Mount the container's root filesystem as read
+                only.
+            stop_signal (string): Set signal to stop the service's containers
+            healthcheck (Healthcheck): Healthcheck
+                configuration for this service.
+            hosts (:py:class:`dict`): A set of host to IP mappings to add to
+                the container's `hosts` file.
+            dns_config (DNSConfig): Specification for DNS
+                related configurations in resolver configuration file.
+            configs (:py:class:`list`): List of :py:class:`ConfigReference`
+                that will be exposed to the service.
+            privileges (Privileges): Security options for the service's
+                containers.
 
         Returns:
             (:py:class:`Service`) The created service.
@@ -161,12 +177,14 @@ class ServiceCollection(Collection):
         service_id = self.client.api.create_service(**create_kwargs)
         return self.get(service_id)
 
-    def get(self, service_id):
+    def get(self, service_id, insert_defaults=None):
         """
         Get a service.
 
         Args:
             service_id (str): The ID of the service.
+            insert_defaults (boolean): If true, default values will be merged
+                into the output.
 
         Returns:
             (:py:class:`Service`): The service.
@@ -176,8 +194,13 @@ class ServiceCollection(Collection):
                 If the service does not exist.
             :py:class:`docker.errors.APIError`
                 If the server returns an error.
+            :py:class:`docker.errors.InvalidVersion`
+                If one of the arguments is not supported with the current
+                API version.
         """
-        return self.prepare_model(self.client.api.inspect_service(service_id))
+        return self.prepare_model(
+            self.client.api.inspect_service(service_id, insert_defaults)
+        )
 
     def list(self, **kwargs):
         """
@@ -185,7 +208,8 @@ class ServiceCollection(Collection):
 
         Args:
             filters (dict): Filters to process on the nodes list. Valid
-                filters: ``id`` and ``name``. Default: ``None``.
+                filters: ``id``, ``name`` , ``label`` and ``mode``.
+                Default: ``None``.
 
         Returns:
             (list of :py:class:`Service`): The services.
@@ -202,22 +226,32 @@ class ServiceCollection(Collection):
 
 # kwargs to copy straight over to ContainerSpec
 CONTAINER_SPEC_KWARGS = [
-    'image',
-    'command',
     'args',
+    'command',
+    'configs',
+    'dns_config',
     'env',
+    'groups',
+    'healthcheck',
     'hostname',
-    'workdir',
-    'user',
+    'hosts',
+    'image',
     'labels',
     'mounts',
-    'stop_grace_period',
+    'open_stdin',
+    'privileges'
+    'read_only',
     'secrets',
-    'tty'
+    'stop_grace_period',
+    'stop_signal',
+    'tty',
+    'user',
+    'workdir',
 ]
 
 # kwargs to copy straight over to TaskTemplate
 TASK_TEMPLATE_KWARGS = [
+    'networks',
     'resources',
     'restart_policy',
 ]
@@ -228,7 +262,6 @@ CREATE_SERVICE_KWARGS = [
     'labels',
     'mode',
     'update_config',
-    'networks',
     'endpoint_spec',
 ]
 
@@ -261,6 +294,15 @@ def _get_create_service_kwargs(func_name, kwargs):
             'Name': kwargs.pop('log_driver'),
             'Options': kwargs.pop('log_driver_options', {})
         }
+
+    if func_name == 'update':
+        if 'force_update' in kwargs:
+            task_template_kwargs['force_update'] = kwargs.pop('force_update')
+
+        # fetch the current spec by default if updating the service
+        # through the model
+        fetch_current_spec = kwargs.pop('fetch_current_spec', True)
+        create_kwargs['fetch_current_spec'] = fetch_current_spec
 
     # All kwargs should have been consumed by this point, so raise
     # error if any are left
